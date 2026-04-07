@@ -14,9 +14,9 @@ const loginSchema = z.object({
   password: z.string()
 });
 
-const generateToken = (userId) => {
+const generateToken = (userId, email) => {
   return jwt.sign(
-    { userId },
+    { userId, user_id: userId, email },
     process.env.JWT_SECRET,
     { expiresIn: '7d' }
   );
@@ -49,7 +49,7 @@ export const register = async (req, res) => {
       name: name || null
     };
 
-    const token = generateToken(user.id);
+    const token = generateToken(user.id, email);
 
     res.status(201).json({ user, token });
 
@@ -79,7 +79,7 @@ export const login = async (req, res) => {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    const token = generateToken(user.id);
+    const token = generateToken(user.id, user.email);
 
     res.status(200).json({
       user: { id: user.id, email: user.email, name: user.name },
@@ -120,3 +120,70 @@ export const getMe = async (req, res) => {
     res.status(401).json({ error: 'Not authorized' });
   }
 };
+
+export const githubLogin = (req, res) => {
+  const clientId = process.env.GITHUB_CLIENT_ID;
+  const redirectUri = process.env.GITHUB_CALLBACK_URL || 'http://localhost:4001/api/auth/github/callback';
+  const url = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=user:email`;
+  res.redirect(url);
+};
+
+export const githubCallback = async (req, res) => {
+  const { code } = req.query;
+  try {
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+
+    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code })
+    });
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
+
+    if (!accessToken) {
+       return res.redirect(process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/login?error=oauth_failed` : 'http://localhost:5173/login?error=oauth_failed');
+    }
+
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const githubUser = await userRes.json();
+
+    const emailRes = await fetch('https://api.github.com/user/emails', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const emails = await emailRes.json();
+    const primaryEmail = emails.find(e => e.primary)?.email || emails[0]?.email;
+
+    if (!primaryEmail) {
+       return res.redirect('http://localhost:5173/login?error=no_email');
+    }
+
+    const [existing] = await db.execute('SELECT id, email, name FROM users WHERE email = ?', [primaryEmail]);
+    let user;
+
+    if (existing.length > 0) {
+      user = existing[0];
+    } else {
+      const defaultPassword = await Math.random().toString(36);
+      const [result] = await db.execute(
+        `INSERT INTO users (name, email, passwordHash) VALUES (?, ?, ?)`,
+        [githubUser.name || githubUser.login, primaryEmail, defaultPassword]
+      );
+      user = { id: result.insertId, email: primaryEmail, name: githubUser.name || githubUser.login };
+    }
+
+    const token = generateToken(user.id, user.email);
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.redirect(`${frontendUrl}/?token=${token}&userId=${user.id}`);
+  } catch (err) {
+    console.error('[auth-service] GitHub OAuth Error:', err);
+    res.redirect('http://localhost:5173/login?error=server_error');
+  }
+};
+

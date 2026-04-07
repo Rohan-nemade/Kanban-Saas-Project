@@ -1,9 +1,25 @@
 version: '3.8'
 
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+networks:
+  saas_network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  redis_data:
+
 services:
   mysql:
     image: mysql:8
     container_name: jiraclone_mysql
+    networks:
+      - saas_network
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: saas_project
@@ -12,16 +28,152 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   redis:
     image: redis:7-alpine
     container_name: jiraclone_redis
+    networks:
+      - saas_network
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
-volumes:
-  mysql_data:
-  redis_data:
+  auth-service:
+    build:
+      context: .
+      dockerfile: apps/auth-service/Dockerfile
+    container_name: auth-service
+    networks:
+      - saas_network
+    ports:
+      - "4001:4001"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: mysql
+    restart: unless-stopped
+    depends_on:
+      - mysql
+      - redis
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  org-service:
+    build:
+      context: .
+      dockerfile: apps/org-service/Dockerfile
+    container_name: org-service
+    networks:
+      - saas_network
+    ports:
+      - "4002:4002"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: mysql
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  project-service:
+    build:
+      context: .
+      dockerfile: apps/project-service/Dockerfile
+    container_name: project-service
+    networks:
+      - saas_network
+    ports:
+      - "4003:4003"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: mysql
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  task-service:
+    build:
+      context: .
+      dockerfile: apps/task-service/Dockerfile
+    container_name: task-service
+    networks:
+      - saas_network
+    ports:
+      - "4004:4004"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: mysql
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: apps/notification-service/Dockerfile
+    container_name: notification-service
+    networks:
+      - saas_network
+    ports:
+      - "4005:4005"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: mysql
+    restart: unless-stopped
+    depends_on:
+      - mysql
+      - redis
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+    container_name: frontend
+    networks:
+      - saas_network
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
