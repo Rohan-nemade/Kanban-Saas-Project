@@ -98,7 +98,7 @@ export default function Login() {
 
             <div className="mt-6">
               <a
-                href="http://localhost:4001/api/auth/github"
+                href={`${import.meta.env.VITE_AUTH_URL}/api/auth/github`}
                 className="flex w-full justify-center items-center rounded-md border border-input bg-background py-2 px-4 text-sm font-medium text-foreground shadow-sm hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition-all cursor-pointer"
               >
                 <svg className="h-5 w-5 mr-2" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
