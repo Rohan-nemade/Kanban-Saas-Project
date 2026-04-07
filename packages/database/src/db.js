@@ -8,6 +8,10 @@ export const db = mysql.createPool({
   user: process.env.DB_USER || "root",
   password: process.env.DB_PASSWORD || "Rohan@18",
   database: process.env.DB_NAME || "saas_project",
+  port: process.env.DB_PORT || 3306,
   waitForConnections: true,
   connectionLimit: 10,
+  ssl: process.env.DB_HOST?.includes('aivencloud.com')
+    ? { rejectUnauthorized: false }
+    : undefined
 });
