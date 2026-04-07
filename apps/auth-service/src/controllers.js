@@ -38,8 +38,7 @@ export const register = async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const [result] = await db.execute(
-      `INSERT INTO users (name, email, passwordHash)
-       VALUES (?, ?, ?)`,
+      `INSERT INTO users (name, email, passwordHash) VALUES (?, ?, ?)`,
       [name || null, email, passwordHash]
     );
 
@@ -50,7 +49,6 @@ export const register = async (req, res) => {
     };
 
     const token = generateToken(user.id, email);
-
     res.status(201).json({ user, token });
 
   } catch (error) {
@@ -80,7 +78,6 @@ export const login = async (req, res) => {
     }
 
     const token = generateToken(user.id, user.email);
-
     res.status(200).json({
       user: { id: user.id, email: user.email, name: user.name },
       token
@@ -123,12 +120,13 @@ export const getMe = async (req, res) => {
 
 export const githubLogin = (req, res) => {
   const clientId = process.env.GITHUB_CLIENT_ID;
-  const redirectUri = process.env.GITHUB_CALLBACK_URL || 'http://localhost:4001/api/auth/github/callback';
+  const redirectUri = process.env.GITHUB_CALLBACK_URL;
   const url = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=user:email`;
   res.redirect(url);
 };
 
 export const githubCallback = async (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL;
   const { code } = req.query;
   try {
     const clientId = process.env.GITHUB_CLIENT_ID;
@@ -146,7 +144,7 @@ export const githubCallback = async (req, res) => {
     const accessToken = tokenData.access_token;
 
     if (!accessToken) {
-       return res.redirect(process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/login?error=oauth_failed` : 'http://localhost:5173/login?error=oauth_failed');
+      return res.redirect(`${frontendUrl}/login?error=oauth_failed`);
     }
 
     const userRes = await fetch('https://api.github.com/user', {
@@ -161,7 +159,7 @@ export const githubCallback = async (req, res) => {
     const primaryEmail = emails.find(e => e.primary)?.email || emails[0]?.email;
 
     if (!primaryEmail) {
-       return res.redirect('http://localhost:5173/login?error=no_email');
+      return res.redirect(`${frontendUrl}/login?error=no_email`);
     }
 
     const [existing] = await db.execute('SELECT id, email, name FROM users WHERE email = ?', [primaryEmail]);
@@ -170,7 +168,7 @@ export const githubCallback = async (req, res) => {
     if (existing.length > 0) {
       user = existing[0];
     } else {
-      const defaultPassword = await Math.random().toString(36);
+      const defaultPassword = await bcrypt.hash(Math.random().toString(36), 10);
       const [result] = await db.execute(
         `INSERT INTO users (name, email, passwordHash) VALUES (?, ?, ?)`,
         [githubUser.name || githubUser.login, primaryEmail, defaultPassword]
@@ -179,11 +177,10 @@ export const githubCallback = async (req, res) => {
     }
 
     const token = generateToken(user.id, user.email);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     res.redirect(`${frontendUrl}/?token=${token}&userId=${user.id}`);
+
   } catch (err) {
     console.error('[auth-service] GitHub OAuth Error:', err);
-    res.redirect('http://localhost:5173/login?error=server_error');
+    res.redirect(`${frontendUrl}/login?error=server_error`);
   }
 };
-
